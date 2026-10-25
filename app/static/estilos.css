@@ -1,0 +1,105 @@
+/* Estilos del Panel de Asistencia Oportuna: simples y legibles. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #1f2328;
+  background: #f6f7f9;
+}
+
+.aviso {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  background: #fff4cc;
+  border-bottom: 1px solid #e0c96b;
+  color: #5c4500;
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.cabecera, main {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding-inline: 1rem;
+}
+
+.cabecera { padding-block: 1.25rem 0.5rem; }
+.sistema { margin: 0; color: #59636e; font-size: 0.9rem; }
+h1 { margin: 0.1rem 0 0; font-size: 1.6rem; }
+
+.selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+  margin: 1rem 0;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+}
+
+.selector label { display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; font-size: 0.9rem; }
+
+select, input[type=date], button { font: inherit; }
+select, input[type=date] {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #b8c0c8;
+  border-radius: 6px;
+  background: #fff;
+  max-width: 100%;
+}
+select:disabled { color: #9aa3ab; background: #f0f2f4; }
+
+button {
+  padding: 0.5rem 1.1rem;
+  border: 0;
+  border-radius: 6px;
+  background: #1f5fa8;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:hover { background: #184c87; }
+button.secundario { background: #fff; color: #1f5fa8; border: 1px solid #1f5fa8; }
+
+.mensaje { margin: 1rem 0; padding: 0.75rem 1rem; border-radius: 8px; }
+.mensaje.ok { background: #e3f4e6; border: 1px solid #8cc79a; color: #14532d; }
+.mensaje.error { background: #fde7e5; border: 1px solid #f0a49b; color: #7a1a12; }
+.mensaje p, .mensaje ul { margin: 0.2rem 0; }
+
+.vacio { padding: 1rem; background: #fff; border-radius: 8px; }
+
+.tabla-contenedor { overflow-x: auto; background: #fff; border: 1px solid #d8dde3; border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 0.6rem 0.75rem; text-align: left; vertical-align: top; border-bottom: 1px solid #eceff2; }
+thead th { background: #f0f2f4; font-size: 0.85rem; color: #424a53; }
+tbody th { font-family: ui-monospace, Consolas, monospace; font-weight: 600; white-space: nowrap; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+
+.pendiente { display: block; font-family: system-ui, sans-serif; font-weight: 400; font-size: 0.75rem; color: #8a6100; }
+.estado { display: flex; gap: 0.9rem; white-space: nowrap; }
+
+.semaforo {
+  display: inline-block;
+  min-width: 5.5rem;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-align: center;
+}
+.semaforo.verde { background: #e3f4e6; color: #14532d; border: 1px solid #8cc79a; }
+.semaforo.amarillo { background: #fff4cc; color: #5c4500; border: 1px solid #e0c96b; }
+.semaforo.rojo { background: #fde7e5; color: #7a1a12; border: 1px solid #f0a49b; }
+.semaforo.sin_datos { background: #f0f2f4; color: #424a53; border: 1px solid #c8cfd6; }
+
+.detalle { display: block; margin-top: 0.2rem; font-size: 0.85rem; color: #424a53; }
+.alertas { margin: 0.3rem 0 0; padding-left: 1.1rem; font-size: 0.8rem; color: #7a1a12; }
+
+.acciones { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin: 1rem 0 2rem; }
+.nota { margin: 0; color: #59636e; font-size: 0.9rem; }

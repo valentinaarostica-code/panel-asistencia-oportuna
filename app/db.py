@@ -7,6 +7,7 @@ El resto del programa no escribe SQL: usa estas funciones.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
@@ -127,6 +128,29 @@ def insertar_asistencias(
     )
 
 
+def guardar_asistencias(
+    conn: sqlite3.Connection, registros: Iterable[Asistencia]
+) -> None:
+    """Guarda la asistencia; si el niño ya tiene registro ese día, lo actualiza."""
+    conn.executemany(
+        "INSERT INTO asistencia (nino_id, fecha, estado, motivo, informado_por_familia) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT (nino_id, fecha) DO UPDATE SET "
+        "estado = excluded.estado, motivo = excluded.motivo, "
+        "informado_por_familia = excluded.informado_por_familia",
+        (
+            (
+                r.nino_id,
+                r.fecha.isoformat(),
+                r.estado,
+                r.motivo,
+                int(r.informado_por_familia),
+            )
+            for r in registros
+        ),
+    )
+
+
 # --- Consultar ---------------------------------------------------------------
 
 def contar(conn: sqlite3.Connection, tabla: str) -> int:
@@ -167,3 +191,45 @@ def estados_por_nino(
     for fila in filas:
         resultado.setdefault(fila["nino_id"], []).append(fila["estado"])
     return resultado
+
+
+def listar_salas(conn: sqlite3.Connection, jardin_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, jardin_id, nivel FROM sala WHERE jardin_id = ? ORDER BY id",
+        (jardin_id,),
+    ).fetchall()
+
+
+def ninos_de_sala(conn: sqlite3.Connection, sala_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, codigo FROM nino WHERE sala_id = ? ORDER BY codigo",
+        (sala_id,),
+    ).fetchall()
+
+
+def ultima_fecha_con_datos(
+    conn: sqlite3.Connection, jardin_id: Optional[int] = None
+) -> Optional[date]:
+    """Último día con asistencia registrada (en un jardín o en todos). None si no hay."""
+    valor = conn.execute(
+        "SELECT MAX(a.fecha) "
+        "FROM asistencia a "
+        "JOIN nino n ON n.id = a.nino_id "
+        "JOIN sala s ON s.id = n.sala_id "
+        "WHERE (? IS NULL OR s.jardin_id = ?)",
+        (jardin_id, jardin_id),
+    ).fetchone()[0]
+    return date.fromisoformat(valor) if valor else None
+
+
+def asistencias_del_dia(
+    conn: sqlite3.Connection, sala_id: int, fecha: date
+) -> dict[int, sqlite3.Row]:
+    """Devuelve {id_del_niño: registro} con lo ya guardado de una sala en un día."""
+    filas = conn.execute(
+        "SELECT a.nino_id, a.estado, a.motivo "
+        "FROM asistencia a JOIN nino n ON n.id = a.nino_id "
+        "WHERE n.sala_id = ? AND a.fecha = ?",
+        (sala_id, fecha.isoformat()),
+    ).fetchall()
+    return {fila["nino_id"]: fila for fila in filas}

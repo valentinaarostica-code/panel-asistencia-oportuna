@@ -121,6 +121,53 @@ class TestBaseDeDatos(unittest.TestCase):
         for tabla in ("jardin", "sala", "nino", "asistencia"):
             self.assertEqual(db.contar(self.conn, tabla), 0)
 
+    def test_guardar_asistencias_inserta_y_actualiza(self):
+        _, _, nino = self._armar_jardin()
+        dia = date(2026, 3, 2)
+        db.guardar_asistencias(self.conn, [Asistencia(nino.id, dia, cfg.PRESENTE)])
+        db.guardar_asistencias(self.conn, [Asistencia(nino.id, dia, cfg.AUSENTE, cfg.SALUD)])
+        self.assertEqual(db.contar(self.conn, "asistencia"), 1)
+        fila = self.conn.execute(
+            "SELECT estado, motivo, informado_por_familia FROM asistencia"
+        ).fetchone()
+        self.assertEqual(tuple(fila), (cfg.AUSENTE, cfg.SALUD, 1))
+
+        db.guardar_asistencias(self.conn, [Asistencia(nino.id, dia, cfg.PRESENTE)])
+        fila = self.conn.execute(
+            "SELECT estado, motivo, informado_por_familia FROM asistencia"
+        ).fetchone()
+        self.assertEqual(tuple(fila), (cfg.PRESENTE, None, 0))
+
+    def test_salas_y_ninos_de_sala(self):
+        jardin, sala, nino = self._armar_jardin()
+        otra = Sala(jardin.id, "Sala cuna")
+        db.insertar_sala(self.conn, otra)
+        db.insertar_nino(self.conn, Nino("J01-N002", otra.id))
+        self.assertEqual([s["nivel"] for s in db.listar_salas(self.conn, jardin.id)],
+                         ["Medio menor", "Sala cuna"])
+        self.assertEqual([n["codigo"] for n in db.ninos_de_sala(self.conn, sala.id)],
+                         [nino.codigo])
+        self.assertEqual(db.listar_salas(self.conn, 999), [])
+
+    def test_ultima_fecha_y_registros_del_dia(self):
+        jardin, sala, nino = self._armar_jardin()
+        self.assertIsNone(db.ultima_fecha_con_datos(self.conn))
+        db.insertar_asistencias(
+            self.conn,
+            [
+                Asistencia(nino.id, date(2026, 3, 2), cfg.PRESENTE),
+                Asistencia(nino.id, date(2026, 3, 3), cfg.AUSENTE),
+            ],
+        )
+        self.assertEqual(db.ultima_fecha_con_datos(self.conn), date(2026, 3, 3))
+        self.assertEqual(db.ultima_fecha_con_datos(self.conn, jardin.id), date(2026, 3, 3))
+        self.assertIsNone(db.ultima_fecha_con_datos(self.conn, 999))
+
+        del_dia = db.asistencias_del_dia(self.conn, sala.id, date(2026, 3, 3))
+        self.assertEqual(list(del_dia), [nino.id])
+        self.assertEqual(del_dia[nino.id]["motivo"], cfg.SIN_INFORMACION)
+        self.assertEqual(db.asistencias_del_dia(self.conn, sala.id, date(2026, 3, 4)), {})
+
     def test_contar_rechaza_tablas_desconocidas(self):
         with self.assertRaises(ValueError):
             db.contar(self.conn, "usuarios; DROP TABLE jardin")

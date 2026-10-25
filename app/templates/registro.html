@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registro diario de asistencia · {{ nombre_sistema }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='estilos.css') }}">
+</head>
+<body>
+  <p class="aviso" role="note"><strong>{{ aviso }}</strong></p>
+
+  <header class="cabecera">
+    <p class="sistema">{{ nombre_sistema }}</p>
+    <h1>Registro diario de asistencia</h1>
+  </header>
+
+  <main>
+    <form class="selector" method="get" action="/">
+      <label>Jardín
+        <select name="jardin_id" onchange="this.form.submit()">
+          {% for j in jardines %}
+          <option value="{{ j.id }}" {% if j.id == jardin_id %}selected{% endif %}>{{ j.nombre }} · {{ j.comuna }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Sala
+        <select name="sala_id" onchange="this.form.submit()">
+          {% for s in salas %}
+          <option value="{{ s.id }}" {% if s.id == sala_id %}selected{% endif %}>{{ s.nivel }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Fecha
+        <input type="date" name="fecha" value="{{ fecha.isoformat() }}" max="{{ hoy.isoformat() }}">
+      </label>
+      <button type="submit" class="secundario">Ver</button>
+    </form>
+
+    {% if guardados is not none and not errores %}
+    <div class="mensaje ok" role="status">
+      Asistencia guardada: {{ guardados }} niño{{ '' if guardados == 1 else 's' }} el {{ fecha.strftime('%d-%m-%Y') }}. El semáforo ya está actualizado.
+    </div>
+    {% endif %}
+
+    {% if errores %}
+    <div class="mensaje error" role="alert">
+      <p><strong>No se guardó nada.</strong> Revisa lo siguiente:</p>
+      <ul>{% for e in errores %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    {% if not jardines %}
+    <p class="vacio">No hay datos. Genera los datos ficticios con <code>python scripts/generar_datos.py</code>.</p>
+    {% elif not filas %}
+    <p class="vacio">Esta sala no tiene niños.</p>
+    {% else %}
+    <form method="post" action="/registro">
+      <input type="hidden" name="jardin_id" value="{{ jardin_id }}">
+      <input type="hidden" name="sala_id" value="{{ sala_id }}">
+      <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+
+      <div class="tabla-contenedor">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Código</th>
+              <th scope="col">Asistencia</th>
+              <th scope="col">Motivo si faltó</th>
+              <th scope="col">Semáforo (todo el año)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in filas %}
+            <tr data-nino="{{ f.id }}">
+              <th scope="row">
+                {{ f.codigo }}
+                {% if not f.registrado %}<span class="pendiente">sin registrar</span>{% endif %}
+              </th>
+              <td>
+                <div class="estado">
+                  <label><input type="radio" name="estado_{{ f.id }}" value="{{ presente }}" {% if f.estado == presente %}checked{% endif %}> Presente</label>
+                  <label><input type="radio" name="estado_{{ f.id }}" value="{{ ausente }}" {% if f.estado == ausente %}checked{% endif %}> Ausente</label>
+                </div>
+              </td>
+              <td>
+                <select name="motivo_{{ f.id }}" aria-label="Motivo de {{ f.codigo }}">
+                  {% for m in motivos %}
+                  <option value="{{ m }}" {% if m == f.motivo %}selected{% endif %}>{{ m }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                <span class="semaforo {{ f.nivel }}" data-nivel="{{ f.nivel }}">{{ f.etiqueta }}</span>
+                {% if f.nivel == 'sin_datos' %}
+                <span class="detalle">{{ f.dias }} de {{ min_dias }} días mínimos</span>
+                {% else %}
+                <span class="detalle">{{ f.pct }} de faltas ({{ f.ausencias }} de {{ f.dias }} días)</span>
+                {% endif %}
+                {% if f.alertas %}
+                <ul class="alertas">{% for a in f.alertas %}<li>{{ a }}</li>{% endfor %}</ul>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="acciones">
+        <button type="submit">Guardar asistencia</button>
+        <p class="nota">Si un niño ya tenía registro ese día, se actualiza.</p>
+      </div>
+    </form>
+    {% endif %}
+  </main>
+
+  <script>
+    // El motivo solo aplica si el niño faltó: se desactiva cuando está presente.
+    document.querySelectorAll("tr[data-nino]").forEach(function (fila) {
+      var menu = fila.querySelector("select");
+      function actualizar() {
+        var marcado = fila.querySelector("input[type=radio]:checked");
+        menu.disabled = !marcado || marcado.value !== "{{ ausente }}";
+      }
+      fila.querySelectorAll("input[type=radio]").forEach(function (r) {
+        r.addEventListener("change", actualizar);
+      });
+      actualizar();
+    });
+  </script>
+</body>
+</html>
