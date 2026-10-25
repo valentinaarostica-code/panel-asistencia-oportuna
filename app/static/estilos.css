@@ -164,5 +164,23 @@ td a { color: #1f5fa8; white-space: nowrap; }
 .alertas:only-child { margin-top: 0; }
 .oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
+/* --- Panel de la Subdirección ------------------------------------------------ */
+
+.quitar { color: #1f5fa8; padding-bottom: 0.5rem; }
+
+.tabla-red { font-size: 0.9rem; }
+.tabla-red thead th { vertical-align: bottom; }
+.tabla-red thead th a { color: #1f2328; text-decoration: none; }
+.tabla-red thead th a:hover { text-decoration: underline; }
+.tabla-red thead th[aria-sort] { background: #e3eaf3; }
+.tabla-red thead .semaforo { min-width: 0; }
+.tabla-red tbody th { font-family: inherit; white-space: normal; min-width: 11rem; }
+.tabla-red tbody th a { color: #1f5fa8; }
+.tabla-red tr.con-senal { background: #fff8f7; }
+.puesto { font-weight: 600; }
+.empate { font-weight: 400; font-size: 0.75rem; color: #59636e; }
+.senal { display: inline-block; font-weight: 700; color: #7a1a12; }
+.totales th, .totales td { border-top: 2px solid #b8c0c8; background: #f0f2f4; font-weight: 700; }
+
 .acciones { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin: 1rem 0 2rem; }
 .nota { margin: 0; color: #59636e; font-size: 0.9rem; }

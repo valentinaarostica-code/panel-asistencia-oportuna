@@ -1,14 +1,10 @@
 """Pruebas de la pantalla "Panel del jardín" (/panel en app/main.py).
 
-La base se genera una sola vez en memoria con la semilla fija 2026 (la misma de
-la demo) y se copia a un archivo temporal, porque la app abre la base por ruta.
+Usan la base de demostración con semilla fija (tests/base_demo.py).
 """
 
 import re
-import tempfile
 import unittest
-from contextlib import closing
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -16,7 +12,7 @@ from app import config as cfg
 from app import db
 from app.main import _frase_resumen, app, ruta_bd
 from app.rules import DESCRIPCION_ALERTA, ResumenJardin, evaluar_nino, resumen_jardin
-from scripts import generar_datos as gen
+from tests.base_demo import base_demo
 
 PEQUENOS_PASOS = 3
 RAYITO_DE_SOL = 1
@@ -28,21 +24,13 @@ ETIQUETAS = {cfg.VERDE: "Verde", cfg.AMARILLO: "Amarillo", cfg.ROJO: "Rojo", cfg
 class TestPanel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.carpeta = tempfile.TemporaryDirectory()
-        cls.ruta = Path(cls.carpeta.name) / "panel.db"
-        memoria = db.conectar(":memory:")
-        gen.generar(memoria, semilla=2026)
-        with closing(db.conectar(cls.ruta)) as archivo:
-            memoria.backup(archivo)
-        cls.memoria = memoria
+        cls.ruta, cls.memoria = base_demo()
         app.dependency_overrides[ruta_bd] = lambda: cls.ruta
         cls.cliente = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
         app.dependency_overrides.clear()
-        cls.memoria.close()
-        cls.carpeta.cleanup()
 
     # --- Ayudas -------------------------------------------------------------
 

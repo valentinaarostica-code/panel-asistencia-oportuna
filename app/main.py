@@ -3,6 +3,7 @@
 Pantallas:
 - "/"       Registro diario de asistencia de una sala.
 - "/panel"  Panel del jardín: a quién actuar esta semana.
+- "/subdireccion"  Panel de la Subdirección: todos los jardines juntos.
 
 Todavía no hay login: los roles se agregan después.
 
@@ -50,10 +51,7 @@ ETIQUETA_NIVEL = {
     cfg.SIN_DATOS: "Sin datos",
 }
 
-# Desde este promedio de asistencia el jardín "se ve bien" a simple vista. Si
-# además tiene niños en rojo, el panel lo destaca: es lo que el promedio esconde.
-# Es solo para la pantalla; no cambia ninguna regla del semáforo.
-PROMEDIO_QUE_SE_VE_BIEN = 90
+SENAL_PROMEDIO_OCULTA = "Promedio que oculta casos graves"
 
 
 def ruta_bd() -> Path:
@@ -308,6 +306,14 @@ def _prioridad(resultado: ResultadoNino) -> int:
     return 4
 
 
+def _promedio_alto(promedio: Optional[float]) -> bool:
+    """True si la asistencia promedio "se ve bien" (desde cfg.UMBRAL_PROMEDIO_ALTO_PCT).
+
+    Se redondea para que 90% exacto no quede fuera por un error de decimales.
+    """
+    return promedio is not None and round(promedio, 6) >= cfg.UMBRAL_PROMEDIO_ALTO_PCT
+
+
 def _frase_resumen(resumen: ResumenJardin) -> tuple[str, bool]:
     """La frase bajo las tarjetas y si va destacada como advertencia."""
     promedio = resumen.asistencia_promedio_pct
@@ -330,7 +336,7 @@ def _frase_resumen(resumen: ResumenJardin) -> tuple[str, bool]:
         f"{resumen.ninos_rojo} de {total} ({_formato_pct_corto(resumen.pct_ninos_rojo)}) "
         f"{'está' if resumen.ninos_rojo == 1 else 'están'} en rojo"
     )
-    if round(promedio, 6) >= PROMEDIO_QUE_SE_VE_BIEN:
+    if _promedio_alto(promedio):
         return f"El promedio se ve bien ({texto_prom}), pero {rojos}.", True
     return f"La asistencia promedio es {texto_prom} y {rojos}.", False
 
@@ -452,3 +458,167 @@ def panel(
             "base_panel": f"/panel?jardin_id={jardin['id']}",
         }
         return _pantalla_panel(request, contexto)
+
+
+# --- Pantalla 3: Panel de la Subdirección --------------------------------------
+
+# Columnas por las que se puede ordenar: (cómo se lee el valor, dirección por defecto).
+ORDENES = {
+    "rojo": (lambda f: f["resumen"].pct_ninos_rojo, "desc"),
+    "riesgo": (lambda f: f["resumen"].pct_ninos_en_riesgo, "desc"),
+    "promedio": (lambda f: f["resumen"].asistencia_promedio_pct, "desc"),
+    "alerta": (lambda f: f["resumen"].ninos_con_alerta, "desc"),
+    "ninos": (lambda f: f["resumen"].ninos, "desc"),
+    "nombre": (lambda f: f["nombre"].casefold(), "asc"),
+}
+ORDEN_DEFECTO = "rojo"
+
+
+def _senal(resumen: ResumenJardin) -> Optional[str]:
+    """Señal del jardín: el promedio se ve bien, pero tiene varios niños en rojo."""
+    if _promedio_alto(resumen.asistencia_promedio_pct) and (
+        resumen.ninos_rojo >= cfg.MIN_ROJOS_ALERTA_JARDIN
+    ):
+        return SENAL_PROMEDIO_OCULTA
+    return None
+
+
+def _puestos(valores: Mapping[int, Optional[float]]) -> dict[int, tuple[Optional[int], bool]]:
+    """Ranking de mayor a menor: {id: (puesto, ¿empatado?)}. Los empates comparten puesto.
+
+    Ejemplo: 40, 40, 36 → puestos 1, 1, 3. Sin valor (None) no tiene puesto.
+    """
+    redondeados = {k: round(v, 6) for k, v in valores.items() if v is not None}
+    resultado: dict[int, tuple[Optional[int], bool]] = {k: (None, False) for k in valores}
+    for clave, valor in redondeados.items():
+        mayores = sum(1 for v in redondeados.values() if v > valor)
+        iguales = sum(1 for v in redondeados.values() if v == valor)
+        resultado[clave] = (mayores + 1, iguales > 1)
+    return resultado
+
+
+def _ordenar(filas: list[dict], orden: str, direccion: str) -> list[dict]:
+    """Ordena por la columna pedida; los empates y los jardines sin datos van por nombre."""
+    leer, _ = ORDENES[orden]
+    por_nombre = sorted(filas, key=lambda f: f["nombre"].casefold())
+    con_valor = [f for f in por_nombre if leer(f) is not None]
+    sin_valor = [f for f in por_nombre if leer(f) is None]
+    # sorted es estable también con reverse=True: los empates quedan por nombre.
+    return sorted(con_valor, key=leer, reverse=(direccion == "desc")) + sin_valor
+
+
+def _celdas_resumen(resumen: ResumenJardin) -> dict:
+    """Los números de una fila de la tabla, ya con formato."""
+    con_semaforo = resumen.ninos - resumen.ninos_sin_datos
+    return {
+        "resumen": resumen,
+        "promedio": (
+            _formato_pct(resumen.asistencia_promedio_pct)
+            if resumen.asistencia_promedio_pct is not None else "—"
+        ),
+        "pct_rojo": _formato_pct(resumen.pct_ninos_rojo) if con_semaforo else "—",
+        "pct_riesgo": _formato_pct(resumen.pct_ninos_en_riesgo) if con_semaforo else "—",
+    }
+
+
+@app.get("/subdireccion", response_class=HTMLResponse)
+def subdireccion(
+    request: Request,
+    orden: Optional[str] = None,
+    dir: Optional[str] = None,
+    region: Optional[str] = None,
+    ruta: Path = Depends(ruta_bd),
+):
+    with closing(_abrir(ruta)) as conn:
+        jardines = db.listar_jardines(conn)
+        ultima = db.ultima_fecha_con_datos(conn)
+        filas = []
+        todos_los_ninos = []
+        for jardin in jardines:
+            historial = db.estados_por_nino(conn, jardin["id"])
+            resultados = [
+                evaluar_nino(historial.get(nino["id"], []))
+                for nino in db.ninos_de_jardin(conn, jardin["id"])
+            ]
+            todos_los_ninos.append(resultados)
+            resumen = resumen_jardin(resultados)
+            filas.append(
+                {
+                    "id": jardin["id"],
+                    "nombre": jardin["nombre"],
+                    "comuna": jardin["comuna"],
+                    "region": jardin["region"],
+                    "enlace": f"/panel?jardin_id={jardin['id']}",
+                    "senal": _senal(resumen),
+                    **_celdas_resumen(resumen),
+                }
+            )
+
+    # Los puestos se calculan con toda la red, para que el filtro no los cambie.
+    por_promedio = _puestos({f["id"]: f["resumen"].asistencia_promedio_pct for f in filas})
+    por_rojo = _puestos({f["id"]: f["resumen"].pct_ninos_rojo for f in filas})
+    for f in filas:
+        f["puesto_promedio"], f["empate_promedio"] = por_promedio[f["id"]]
+        f["puesto_rojo"], f["empate_rojo"] = por_rojo[f["id"]]
+
+    # Tarjetas: siempre de toda la red.
+    red = resumen_jardin(r for resultados in todos_los_ninos for r in resultados)
+    jardines_con_senal = sum(1 for f in filas if f["senal"])
+
+    # Filtro por región (si no existe, se muestran todas y se avisa).
+    avisos = []
+    regiones = sorted({f["region"] for f in filas})
+    region_elegida = region or None
+    if region_elegida is not None and region_elegida not in regiones:
+        avisos.append(f"La región «{region}» no existe: se muestran todas las regiones.")
+        region_elegida = None
+    indices_visibles = [
+        i for i, f in enumerate(filas) if region_elegida is None or f["region"] == region_elegida
+    ]
+    visibles = [filas[i] for i in indices_visibles]
+
+    # Orden (si no es válido, se usa el orden por defecto, sin error).
+    if orden not in ORDENES:
+        orden, dir = ORDEN_DEFECTO, None
+    if dir not in ("asc", "desc"):
+        dir = ORDENES[orden][1]
+    visibles = _ordenar(visibles, orden, dir)
+
+    # Fila de totales: lo que se ve en la tabla.
+    total = _celdas_resumen(
+        resumen_jardin(r for i in indices_visibles for r in todos_los_ninos[i])
+    )
+
+    def enlace_orden(columna: str) -> str:
+        """Enlace del encabezado: si ya se ordena por esa columna, invierte la dirección."""
+        if columna == orden:
+            nueva = "asc" if dir == "desc" else "desc"
+        else:
+            nueva = ORDENES[columna][1]
+        params = {"orden": columna, "dir": nueva}
+        if region_elegida:
+            params["region"] = region_elegida
+        return "/subdireccion?" + urlencode(params)
+
+    contexto = {
+        **_contexto_base("subdireccion", None),
+        "datos_al": ultima.strftime("%d-%m-%Y") if ultima else "sin datos",
+        "red": red,
+        "pct_rojo_red": _formato_pct(red.pct_ninos_rojo),
+        "con_semaforo_red": red.ninos - red.ninos_sin_datos,
+        "jardines_con_senal": jardines_con_senal,
+        "total_jardines": len(filas),
+        "filas": visibles,
+        "total": total,
+        "titulo_total": f"Total {region_elegida}" if region_elegida else "Total de la red",
+        "regiones": regiones,
+        "region_elegida": region_elegida,
+        "orden": orden,
+        "dir": dir,
+        "enlaces_orden": {c: enlace_orden(c) for c in ORDENES},
+        "avisos": avisos,
+        "senal_texto": SENAL_PROMEDIO_OCULTA,
+        "umbral_promedio": cfg.UMBRAL_PROMEDIO_ALTO_PCT,
+        "min_rojos": cfg.MIN_ROJOS_ALERTA_JARDIN,
+    }
+    return plantillas.TemplateResponse(request, "subdireccion.html", contexto)

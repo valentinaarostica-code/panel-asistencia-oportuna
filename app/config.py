@@ -52,5 +52,11 @@ MIN_DIAS_LECTIVOS = 10
 FALTAS_SEGUIDAS_ALERTA = 3   # 3 o más faltas seguidas hasta hoy
 VENTANA_RECIENTE_DIAS = 20   # para detectar niños que empeoran hace poco
 
+# --- Señal de jardín: "promedio que oculta casos graves" (supuesto [S]) -----
+# Un jardín cuyo promedio de asistencia se ve bien, pero que igual tiene varios
+# niños en rojo. Es la brecha del proyecto: mirar solo el promedio los esconde.
+UMBRAL_PROMEDIO_ALTO_PCT = 90   # desde 90% de asistencia promedio, "se ve bien"
+MIN_ROJOS_ALERTA_JARDIN = 3     # y al menos 3 niños en rojo
+
 # --- Estructura de los jardines (para los datos ficticios) --------------------
 NIVELES_SALA = ("Sala cuna", "Medio menor", "Medio mayor")

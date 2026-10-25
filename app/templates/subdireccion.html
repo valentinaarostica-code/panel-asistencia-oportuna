@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block titulo %}Panel de la Subdirección{% endblock %}
+{% block h1 %}Panel de la Subdirección{% endblock %}
+
+{% macro encabezado(columna, texto) -%}
+  <th scope="col" {% if orden == columna %}aria-sort="{{ 'ascending' if dir == 'asc' else 'descending' }}"{% endif %}>
+    <a href="{{ enlaces_orden[columna] }}">{{ texto }}{% if orden == columna %} <span aria-hidden="true">{{ '▲' if dir == 'asc' else '▼' }}</span>{% endif %}</a>
+  </th>
+{%- endmacro %}
+
+{% macro puesto(numero, empate) -%}
+  {% if numero %}{{ numero }}º{% if empate %} <span class="empate">(empate)</span>{% endif %}{% else %}—{% endif %}
+{%- endmacro %}
+
+{% block contenido %}
+    <form class="selector" method="get" action="/subdireccion">
+      <input type="hidden" name="orden" value="{{ orden }}">
+      <input type="hidden" name="dir" value="{{ dir }}">
+      <label>Región
+        <select name="region" onchange="this.form.submit()">
+          <option value="">Todas</option>
+          {% for r in regiones %}
+          <option value="{{ r }}" {% if r == region_elegida %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="secundario">Ver</button>
+      {% if region_elegida %}<a class="quitar" href="/subdireccion?orden={{ orden }}&amp;dir={{ dir }}">Quitar filtro</a>{% endif %}
+      <p class="datos-al">Datos al: <strong>{{ datos_al }}</strong></p>
+    </form>
+
+    {% for a in avisos %}<div class="mensaje error" role="status">{{ a }}</div>{% endfor %}
+
+    {% if not filas and not region_elegida %}
+    <p class="vacio">No hay datos. Genera los datos ficticios con <code>python scripts/generar_datos.py</code>.</p>
+    {% else %}
+
+    <section aria-label="Resumen de la red">
+      <div class="tarjetas">
+        <div class="tarjeta">
+          <p class="tarjeta-titulo">Total de niños</p>
+          <p class="tarjeta-valor">{{ red.ninos }}</p>
+          <p class="tarjeta-nota">en {{ total_jardines }} jardines de la red</p>
+        </div>
+        <div class="tarjeta{% if red.ninos_rojo %} tarjeta-rojo{% endif %}">
+          <p class="tarjeta-titulo">Niños en rojo en la red</p>
+          <p class="tarjeta-valor">{{ pct_rojo_red }}</p>
+          <p class="tarjeta-nota">{{ red.ninos_rojo }} de {{ con_semaforo_red }} niños con semáforo</p>
+        </div>
+        <div class="tarjeta{% if jardines_con_senal %} tarjeta-rojo{% endif %}">
+          <p class="tarjeta-titulo">Jardines con promedio que oculta</p>
+          <p class="tarjeta-valor">{{ jardines_con_senal }}</p>
+          <p class="tarjeta-nota">asistencia de {{ umbral_promedio }}% o más y al menos {{ min_rojos }} niños en rojo</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-label="Jardines">
+      <h2>Jardines</h2>
+      <p class="nota">
+        Haz clic en un encabezado para ordenar. Compara los dos puestos: un jardín puede estar
+        arriba por promedio y, aun así, tener muchos niños en rojo.
+      </p>
+
+      <div class="tabla-contenedor">
+        <table class="tabla-red">
+          <thead>
+            <tr>
+              {{ encabezado('nombre', 'Jardín') }}
+              <th scope="col">Comuna</th>
+              <th scope="col">Región</th>
+              {{ encabezado('ninos', 'Niños') }}
+              {{ encabezado('promedio', 'Asistencia promedio') }}
+              <th scope="col">Puesto por promedio</th>
+              <th scope="col"><span class="semaforo verde">Verde</span></th>
+              <th scope="col"><span class="semaforo amarillo">Amarillo</span></th>
+              <th scope="col"><span class="semaforo rojo">Rojo</span></th>
+              <th scope="col"><span class="semaforo sin_datos">Sin datos</span></th>
+              {{ encabezado('rojo', '% en rojo') }}
+              <th scope="col">Puesto por % en rojo</th>
+              {{ encabezado('riesgo', '% en riesgo (amarillo + rojo)') }}
+              {{ encabezado('alerta', 'Niños con alerta') }}
+              <th scope="col">Señal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in filas %}
+            <tr data-jardin="{{ f.id }}"{% if f.senal %} class="con-senal"{% endif %}>
+              <th scope="row"><a href="{{ f.enlace }}">{{ f.nombre }}</a></th>
+              <td>{{ f.comuna }}</td>
+              <td>{{ f.region }}</td>
+              <td class="numero">{{ f.resumen.ninos }}</td>
+              <td class="numero">{{ f.promedio }}</td>
+              <td class="numero puesto">{{ puesto(f.puesto_promedio, f.empate_promedio) }}</td>
+              <td class="numero">{{ f.resumen.ninos_verde }}</td>
+              <td class="numero">{{ f.resumen.ninos_amarillo }}</td>
+              <td class="numero">{{ f.resumen.ninos_rojo }}</td>
+              <td class="numero">{{ f.resumen.ninos_sin_datos }}</td>
+              <td class="numero">{{ f.pct_rojo }}</td>
+              <td class="numero puesto">{{ puesto(f.puesto_rojo, f.empate_rojo) }}</td>
+              <td class="numero">{{ f.pct_riesgo }}</td>
+              <td class="numero">{{ f.resumen.ninos_con_alerta }}</td>
+              <td>{% if f.senal %}<span class="senal">⚠ {{ f.senal }}</span>{% else %}<span class="detalle">—</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="totales">
+              <th scope="row" colspan="3">{{ titulo_total }}</th>
+              <td class="numero">{{ total.resumen.ninos }}</td>
+              <td class="numero">{{ total.promedio }}</td>
+              <td></td>
+              <td class="numero">{{ total.resumen.ninos_verde }}</td>
+              <td class="numero">{{ total.resumen.ninos_amarillo }}</td>
+              <td class="numero">{{ total.resumen.ninos_rojo }}</td>
+              <td class="numero">{{ total.resumen.ninos_sin_datos }}</td>
+              <td class="numero">{{ total.pct_rojo }}</td>
+              <td></td>
+              <td class="numero">{{ total.pct_riesgo }}</td>
+              <td class="numero">{{ total.resumen.ninos_con_alerta }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="nota">
+        La asistencia promedio del total se calcula con todos los días de todos los niños (no es el
+        promedio de los promedios). Los puestos se calculan siempre con los {{ total_jardines }} jardines.
+      </p>
+    </section>
+    {% endif %}
+{% endblock %}
