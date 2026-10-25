@@ -1,6 +1,9 @@
 """Pantallas web del Panel de Asistencia Oportuna (FastAPI + Jinja2).
 
-Por ahora hay una sola pantalla: el registro diario de asistencia de una sala.
+Pantallas:
+- "/"       Registro diario de asistencia de una sala.
+- "/panel"  Panel del jardín: a quién actuar esta semana.
+
 Todavía no hay login: los roles se agregan después.
 
 Para ejecutarla (desde la carpeta principal del proyecto):
@@ -25,7 +28,14 @@ from fastapi.templating import Jinja2Templates
 from app import config as cfg
 from app import db
 from app.models import Asistencia
-from app.rules import DESCRIPCION_ALERTA, evaluar_nino
+from app.rules import (
+    ALERTA_RACHA,
+    DESCRIPCION_ALERTA,
+    ResultadoNino,
+    ResumenJardin,
+    evaluar_nino,
+    resumen_jardin,
+)
 
 CARPETA_APP = Path(__file__).resolve().parent
 
@@ -39,6 +49,11 @@ ETIQUETA_NIVEL = {
     cfg.ROJO: "Rojo",
     cfg.SIN_DATOS: "Sin datos",
 }
+
+# Desde este promedio de asistencia el jardín "se ve bien" a simple vista. Si
+# además tiene niños en rojo, el panel lo destaca: es lo que el promedio esconde.
+# Es solo para la pantalla; no cambia ninguna regla del semáforo.
+PROMEDIO_QUE_SE_VE_BIEN = 90
 
 
 def ruta_bd() -> Path:
@@ -70,6 +85,26 @@ def _leer_id(texto: Optional[str]) -> Optional[int]:
 
 def _formato_pct(valor: float) -> str:
     return f"{valor:.1f}".replace(".", ",") + "%"
+
+
+def _formato_pct_corto(valor: float) -> str:
+    """Como _formato_pct, pero sin ",0" cuando es entero: 16% en vez de 16,0%."""
+    texto = _formato_pct(valor)
+    return texto.replace(",0%", "%")
+
+
+def _plural(cantidad: int, singular: str, plural: str) -> str:
+    return f"{cantidad} {singular if cantidad == 1 else plural}"
+
+
+def _contexto_base(seccion: str, jardin_id: Optional[int]) -> dict:
+    """Lo que necesita base.html: el aviso, el menú y la pantalla activa."""
+    return {
+        "nombre_sistema": cfg.NOMBRE_SISTEMA,
+        "aviso": cfg.AVISO_DATOS_FICTICIOS,
+        "seccion": seccion,
+        "jardin_id": jardin_id,
+    }
 
 
 def _elegir(conn: sqlite3.Connection, jardin_id, sala_id, fecha):
@@ -146,8 +181,7 @@ def _pantalla(
 ):
     jardines, jardin_id, salas, sala_id, fecha = _elegir(conn, jardin_id, sala_id, fecha)
     contexto = {
-        "nombre_sistema": cfg.NOMBRE_SISTEMA,
-        "aviso": cfg.AVISO_DATOS_FICTICIOS,
+        **_contexto_base("registro", jardin_id),
         "jardines": jardines,
         "salas": salas,
         "jardin_id": jardin_id,
@@ -257,3 +291,164 @@ async def guardar_registro(request: Request, ruta: Path = Depends(ruta_bd)):
         }
     )
     return RedirectResponse(f"/?{consulta}", status_code=303)
+
+
+# --- Pantalla 2: Panel del jardín ----------------------------------------------
+
+def _prioridad(resultado: ResultadoNino) -> int:
+    """Orden de atención: rojo, racha, amarillo, verde y al final sin datos."""
+    if resultado.nivel == cfg.ROJO:
+        return 0
+    if ALERTA_RACHA in resultado.alertas:
+        return 1
+    if resultado.nivel == cfg.AMARILLO:
+        return 2
+    if resultado.nivel == cfg.VERDE:
+        return 3
+    return 4
+
+
+def _frase_resumen(resumen: ResumenJardin) -> tuple[str, bool]:
+    """La frase bajo las tarjetas y si va destacada como advertencia."""
+    promedio = resumen.asistencia_promedio_pct
+    if promedio is None:
+        return "Todavía no hay asistencia registrada en este jardín.", False
+    texto_prom = _formato_pct(promedio)
+    con_semaforo = resumen.ninos - resumen.ninos_sin_datos
+    if con_semaforo == 0:
+        return (
+            f"La asistencia promedio es {texto_prom}, pero aún hay muy pocos días "
+            "de clases para pintar el semáforo.",
+            False,
+        )
+    if resumen.ninos_rojo == 0:
+        return f"La asistencia promedio es {texto_prom} y ningún niño está en rojo.", False
+
+    # pct_ninos_rojo se calcula sobre los niños que ya tienen semáforo.
+    total = f"{con_semaforo} niños" + (" con semáforo" if resumen.ninos_sin_datos else "")
+    rojos = (
+        f"{resumen.ninos_rojo} de {total} ({_formato_pct_corto(resumen.pct_ninos_rojo)}) "
+        f"{'está' if resumen.ninos_rojo == 1 else 'están'} en rojo"
+    )
+    if round(promedio, 6) >= PROMEDIO_QUE_SE_VE_BIEN:
+        return f"El promedio se ve bien ({texto_prom}), pero {rojos}.", True
+    return f"La asistencia promedio es {texto_prom} y {rojos}.", False
+
+
+def _pantalla_panel(request: Request, contexto: dict, status_code: int = 200):
+    return plantillas.TemplateResponse(
+        request, "panel.html", contexto, status_code=status_code
+    )
+
+
+@app.get("/panel", response_class=HTMLResponse)
+def panel(
+    request: Request,
+    jardin_id: Optional[str] = None,
+    sala_id: Optional[str] = None,
+    color: Optional[str] = None,
+    solo_alerta: Optional[str] = None,
+    ruta: Path = Depends(ruta_bd),
+):
+    with closing(_abrir(ruta)) as conn:
+        jardines = db.listar_jardines(conn)
+        if jardin_id:
+            jardin = next((j for j in jardines if j["id"] == _leer_id(jardin_id)), None)
+            if jardin is None:
+                return _pantalla_panel(
+                    request,
+                    {
+                        **_contexto_base("panel", None),
+                        "jardines": jardines,
+                        "jardin": None,
+                        "error": f"No existe un jardín con el número «{jardin_id}».",
+                    },
+                    status_code=404,
+                )
+        else:
+            jardin = jardines[0] if jardines else None
+
+        if jardin is None:
+            return _pantalla_panel(
+                request,
+                {**_contexto_base("panel", None), "jardines": [], "jardin": None},
+            )
+
+        salas = db.listar_salas(conn, jardin["id"])
+        historial = db.estados_por_nino(conn, jardin["id"])
+        evaluados = [
+            (nino, evaluar_nino(historial.get(nino["id"], [])))
+            for nino in db.ninos_de_jardin(conn, jardin["id"])
+        ]
+        # Las tarjetas y los conteos son siempre del jardín completo:
+        # los filtros solo achican la lista.
+        resumen = resumen_jardin(r for _, r in evaluados)
+        frase, advertencia = _frase_resumen(resumen)
+        ultima = db.ultima_fecha_con_datos(conn, jardin["id"])
+
+        # --- Filtros (si un valor no sirve, se ignora y se avisa) -------------
+        avisos = []
+        sala_elegida = _leer_id(sala_id)
+        if sala_id and sala_elegida not in [s["id"] for s in salas]:
+            avisos.append("La sala elegida no es de este jardín: se muestran todas las salas.")
+            sala_elegida = None
+        color_elegido = color or None
+        if color_elegido is not None and color_elegido not in cfg.NIVELES:
+            avisos.append(f"El color «{color}» no existe: se muestran todos los colores.")
+            color_elegido = None
+        solo_con_alerta = solo_alerta == "1"
+
+        visibles = [
+            (nino, r)
+            for nino, r in evaluados
+            if (sala_elegida is None or nino["sala_id"] == sala_elegida)
+            and (color_elegido is None or r.nivel == color_elegido)
+            and (not solo_con_alerta or r.tiene_alerta)
+        ]
+        visibles.sort(key=lambda par: (_prioridad(par[1]), -par[1].pct_inasistencia, par[0]["codigo"]))
+
+        filas = [
+            {
+                "codigo": nino["codigo"],
+                "sala": nino["sala"],
+                "nivel": r.nivel,
+                "etiqueta": ETIQUETA_NIVEL[r.nivel],
+                "pct": _formato_pct(r.pct_inasistencia),
+                "ausencias": (
+                    f"{_plural(r.ausencias, 'ausencia', 'ausencias')} de "
+                    f"{_plural(r.dias_lectivos, 'día', 'días')}"
+                ),
+                "alertas": [DESCRIPCION_ALERTA[a] for a in r.alertas],
+                "racha": ALERTA_RACHA in r.alertas,
+                "enlace_registro": "/?" + urlencode(
+                    {"jardin_id": jardin["id"], "sala_id": nino["sala_id"]}
+                ),
+            }
+            for nino, r in visibles
+        ]
+
+        contexto = {
+            **_contexto_base("panel", jardin["id"]),
+            "jardines": jardines,
+            "jardin": jardin,
+            "salas": salas,
+            "resumen": resumen,
+            "promedio": (
+                _formato_pct(resumen.asistencia_promedio_pct)
+                if resumen.asistencia_promedio_pct is not None else "—"
+            ),
+            "pct_rojo": _formato_pct_corto(resumen.pct_ninos_rojo),
+            "con_semaforo": resumen.ninos - resumen.ninos_sin_datos,
+            "frase": frase,
+            "advertencia": advertencia,
+            "datos_al": ultima.strftime("%d-%m-%Y") if ultima else "sin datos",
+            "filas": filas,
+            "sala_elegida": sala_elegida,
+            "color_elegido": color_elegido,
+            "solo_con_alerta": solo_con_alerta,
+            "hay_filtros": bool(sala_elegida or color_elegido or solo_con_alerta),
+            "avisos": avisos,
+            "colores": [(n, ETIQUETA_NIVEL[n]) for n in (cfg.ROJO, cfg.AMARILLO, cfg.VERDE, cfg.SIN_DATOS)],
+            "base_panel": f"/panel?jardin_id={jardin['id']}",
+        }
+        return _pantalla_panel(request, contexto)

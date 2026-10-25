@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block titulo %}Panel del jardín{% endblock %}
+{% block h1 %}Panel del jardín{% endblock %}
+
+{% block contenido %}
+    <form class="selector" method="get" action="/panel">
+      <label>Jardín
+        <select name="jardin_id" onchange="this.form.submit()">
+          {% for j in jardines %}
+          <option value="{{ j.id }}" {% if jardin and j.id == jardin.id %}selected{% endif %}>{{ j.nombre }} · {{ j.comuna }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="secundario">Ver</button>
+      {% if jardin %}<p class="datos-al">Datos al: <strong>{{ datos_al }}</strong></p>{% endif %}
+    </form>
+
+    {% if error %}
+    <div class="mensaje error" role="alert"><p>{{ error }} Elige un jardín de la lista.</p></div>
+    {% elif not jardin %}
+    <p class="vacio">No hay datos. Genera los datos ficticios con <code>python scripts/generar_datos.py</code>.</p>
+    {% else %}
+
+    <section aria-label="Resumen del jardín">
+      <div class="tarjetas">
+        <div class="tarjeta">
+          <p class="tarjeta-titulo">Asistencia promedio</p>
+          <p class="tarjeta-valor">{{ promedio }}</p>
+          <p class="tarjeta-nota">de todos los días de clases del jardín</p>
+        </div>
+        <div class="tarjeta{% if resumen.ninos_rojo %} tarjeta-rojo{% endif %}">
+          <p class="tarjeta-titulo">Niños en rojo</p>
+          <p class="tarjeta-valor">{{ resumen.ninos_rojo }} <span class="tarjeta-pct">({{ pct_rojo }})</span></p>
+          <p class="tarjeta-nota">de {{ con_semaforo }} niños con semáforo</p>
+        </div>
+      </div>
+      <p class="frase{% if advertencia %} advertencia{% endif %}">
+        {% if advertencia %}<strong>Atención:</strong> {% endif %}{{ frase }}
+      </p>
+
+      <ul class="conteos">
+        {% for nivel, etiqueta in colores %}
+        <li><a class="semaforo {{ nivel }}" href="{{ base_panel }}&amp;color={{ nivel }}">{{ etiqueta }}: {{ resumen['ninos_' ~ nivel] }}</a></li>
+        {% endfor %}
+        <li><a class="conteo-alerta" href="{{ base_panel }}&amp;solo_alerta=1">Niños con alerta: {{ resumen.ninos_con_alerta }}</a></li>
+      </ul>
+    </section>
+
+    <section aria-label="Niños del jardín">
+      <h2>Niños, por prioridad</h2>
+      <form class="filtros" method="get" action="/panel">
+        <input type="hidden" name="jardin_id" value="{{ jardin.id }}">
+        <label>Sala
+          <select name="sala_id">
+            <option value="">Todas</option>
+            {% for s in salas %}
+            <option value="{{ s.id }}" {% if s.id == sala_elegida %}selected{% endif %}>{{ s.nivel }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Color
+          <select name="color">
+            <option value="">Todos</option>
+            {% for nivel, etiqueta in colores %}
+            <option value="{{ nivel }}" {% if nivel == color_elegido %}selected{% endif %}>{{ etiqueta }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="casilla"><input type="checkbox" name="solo_alerta" value="1" {% if solo_con_alerta %}checked{% endif %}> Solo con alerta</label>
+        <button type="submit" class="secundario">Filtrar</button>
+        {% if hay_filtros %}<a href="{{ base_panel }}">Quitar filtros</a>{% endif %}
+      </form>
+
+      {% for a in avisos %}<div class="mensaje error" role="status">{{ a }}</div>{% endfor %}
+
+      <p class="nota">Mostrando {{ filas|length }} de {{ resumen.ninos }} niños.
+        Orden: primero rojo, luego con racha de faltas, luego amarillo, verde y sin datos.</p>
+
+      {% if filas %}
+      <div class="tabla-contenedor">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Código</th>
+              <th scope="col">Sala</th>
+              <th scope="col">Color</th>
+              <th scope="col">% de faltas</th>
+              <th scope="col">Ausencias</th>
+              <th scope="col">Alertas</th>
+              <th scope="col"><span class="oculto">Acción</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in filas %}
+            <tr data-codigo="{{ f.codigo }}" data-nivel="{{ f.nivel }}" data-racha="{{ 1 if f.racha else 0 }}">
+              <th scope="row">{{ f.codigo }}</th>
+              <td>{{ f.sala }}</td>
+              <td><span class="semaforo {{ f.nivel }}">{{ f.etiqueta }}</span></td>
+              <td class="numero">{{ f.pct }}</td>
+              <td>{{ f.ausencias }}</td>
+              <td>
+                {% if f.alertas %}
+                <ul class="alertas">{% for a in f.alertas %}<li>{{ a }}</li>{% endfor %}</ul>
+                {% else %}<span class="detalle">—</span>{% endif %}
+              </td>
+              <td><a href="{{ f.enlace_registro }}">Ir al registro de la sala</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="vacio">Ningún niño cumple con estos filtros.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+{% endblock %}

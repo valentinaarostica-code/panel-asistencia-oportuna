@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}{% endblock %} · {{ nombre_sistema }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='estilos.css') }}">
+</head>
+<body>
+  <p class="aviso" role="note"><strong>{{ aviso }}</strong></p>
+
+  <header class="cabecera">
+    <div class="barra">
+      <p class="sistema">{{ nombre_sistema }}</p>
+      <nav class="menu" aria-label="Pantallas">
+        {% set q = '?jardin_id=' ~ jardin_id if jardin_id is not none else '' %}
+        <a href="/{{ q }}" {% if seccion == 'registro' %}aria-current="page"{% endif %}>Registro diario</a>
+        <a href="/panel{{ q }}" {% if seccion == 'panel' %}aria-current="page"{% endif %}>Panel del jardín</a>
+      </nav>
+    </div>
+    <h1>{% block h1 %}{% endblock %}</h1>
+  </header>
+
+  <main>
+    {% block contenido %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

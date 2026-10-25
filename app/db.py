@@ -167,7 +167,7 @@ def listar_jardines(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 def ninos_de_jardin(conn: sqlite3.Connection, jardin_id: int) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT n.id, n.codigo, s.nivel AS sala "
+        "SELECT n.id, n.codigo, s.nivel AS sala, s.id AS sala_id "
         "FROM nino n JOIN sala s ON s.id = n.sala_id "
         "WHERE s.jardin_id = ? ORDER BY n.id",
         (jardin_id,),

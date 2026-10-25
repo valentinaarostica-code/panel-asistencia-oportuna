@@ -148,6 +148,9 @@ class TestBaseDeDatos(unittest.TestCase):
         self.assertEqual([n["codigo"] for n in db.ninos_de_sala(self.conn, sala.id)],
                          [nino.codigo])
         self.assertEqual(db.listar_salas(self.conn, 999), [])
+        por_codigo = {n["codigo"]: n for n in db.ninos_de_jardin(self.conn, jardin.id)}
+        self.assertEqual(por_codigo["J01-N002"]["sala_id"], otra.id)
+        self.assertEqual(por_codigo["J01-N002"]["sala"], "Sala cuna")
 
     def test_ultima_fecha_y_registros_del_dia(self):
         jardin, sala, nino = self._armar_jardin()

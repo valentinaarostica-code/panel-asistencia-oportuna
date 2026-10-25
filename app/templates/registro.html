@@ -1,20 +1,8 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Registro diario de asistencia · {{ nombre_sistema }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='estilos.css') }}">
-</head>
-<body>
-  <p class="aviso" role="note"><strong>{{ aviso }}</strong></p>
+{% extends "base.html" %}
+{% block titulo %}Registro diario de asistencia{% endblock %}
+{% block h1 %}Registro diario de asistencia{% endblock %}
 
-  <header class="cabecera">
-    <p class="sistema">{{ nombre_sistema }}</p>
-    <h1>Registro diario de asistencia</h1>
-  </header>
-
-  <main>
+{% block contenido %}
     <form class="selector" method="get" action="/">
       <label>Jardín
         <select name="jardin_id" onchange="this.form.submit()">
@@ -112,8 +100,9 @@
       </div>
     </form>
     {% endif %}
-  </main>
+{% endblock %}
 
+{% block scripts %}
   <script>
     // El motivo solo aplica si el niño faltó: se desactiva cuando está presente.
     document.querySelectorAll("tr[data-nino]").forEach(function (fila) {
@@ -128,5 +117,4 @@
       actualizar();
     });
   </script>
-</body>
-</html>
+{% endblock %}
