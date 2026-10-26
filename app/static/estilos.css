@@ -182,5 +182,48 @@ td a { color: #1f5fa8; white-space: nowrap; }
 .senal { display: inline-block; font-weight: 700; color: #7a1a12; }
 .totales th, .totales td { border-top: 2px solid #b8c0c8; background: #f0f2f4; font-weight: 700; }
 
+/* --- Seguimiento de casos ------------------------------------------------------ */
+
+.estado-caso, .resultado {
+  display: inline-block;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.estado-caso.escalar { background: #fde7e5; color: #7a1a12; border: 1px solid #f0a49b; }
+.estado-caso.escalar::before { content: "⚠ "; }
+.estado-caso.sugerir_cierre { background: #e3f4e6; color: #14532d; border: 1px solid #8cc79a; }
+.estado-caso.en_seguimiento { background: #e8eef6; color: #1f3f66; border: 1px solid #a9bfdc; }
+.resultado.mejora { background: #e3f4e6; color: #14532d; border: 1px solid #8cc79a; }
+.resultado.mejora::before { content: "↓ "; }
+.resultado.sin_mejora { background: #fff4cc; color: #5c4500; border: 1px solid #e0c96b; }
+.resultado.ninguno { background: #f0f2f4; color: #424a53; border: 1px solid #c8cfd6; }
+
+.tabla-casos { font-size: 0.92rem; }
+.acciones-fila { white-space: nowrap; }
+.acciones-fila form { display: inline; margin-left: 0.5rem; }
+.acciones-fila button { padding: 0.3rem 0.7rem; }
+
+details.caso { margin: 0.5rem 0; background: #fff; border: 1px solid #d8dde3; border-radius: 8px; }
+details.caso > summary { padding: 0.6rem 1rem; cursor: pointer; }
+details.caso[open] > summary { border-bottom: 1px solid #eceff2; }
+details.caso:target { outline: 2px solid #1f5fa8; }
+.detalle-inline { color: #59636e; font-size: 0.85rem; }
+
+.historial { margin: 0.75rem 1rem; padding-left: 1.2rem; }
+.historial li { margin-bottom: 0.4rem; }
+.historial .fecha { display: inline-block; min-width: 6rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.form-revision { display: grid; gap: 0.75rem; padding: 0 1rem 1rem; max-width: 40rem; }
+.form-revision label { display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; font-size: 0.9rem; }
+.form-revision label.casilla { flex-direction: row; align-items: center; gap: 0.4rem; font-weight: 400; }
+.form-revision fieldset { margin: 0; padding: 0.5rem 0.75rem; border: 1px solid #d8dde3; border-radius: 6px; }
+.form-revision legend { font-weight: 600; font-size: 0.9rem; padding: 0 0.25rem; }
+.form-revision textarea { font: inherit; padding: 0.4rem 0.5rem; border: 1px solid #b8c0c8; border-radius: 6px; resize: vertical; }
+.form-revision button { justify-self: start; }
+.aviso-privacidad { margin: 0; padding: 0.4rem 0.6rem; background: #fff4cc; border: 1px solid #e0c96b; border-radius: 6px; color: #5c4500; font-size: 0.9rem; font-weight: 600; }
+
 .acciones { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin: 1rem 0 2rem; }
 .nota { margin: 0; color: #59636e; font-size: 0.9rem; }

@@ -17,6 +17,7 @@
         <a href="/{{ q }}" {% if seccion == 'registro' %}aria-current="page"{% endif %}>Registro diario</a>
         <a href="/panel{{ q }}" {% if seccion == 'panel' %}aria-current="page"{% endif %}>Panel del jardín</a>
         <a href="/subdireccion" {% if seccion == 'subdireccion' %}aria-current="page"{% endif %}>Panel de la Subdirección</a>
+        <a href="/casos{{ q }}" {% if seccion == 'casos' %}aria-current="page"{% endif %}>Seguimiento de casos</a>
       </nav>
     </div>
     <h1>{% block h1 %}{% endblock %}</h1>

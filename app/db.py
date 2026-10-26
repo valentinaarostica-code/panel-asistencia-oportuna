@@ -6,6 +6,7 @@ El resto del programa no escribe SQL: usa estas funciones.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -46,9 +47,36 @@ CREATE TABLE IF NOT EXISTS asistencia (
 );
 
 CREATE INDEX IF NOT EXISTS idx_asistencia_fecha ON asistencia(fecha);
+
+-- Seguimiento de casos (Comité de Asistencia)
+CREATE TABLE IF NOT EXISTS caso (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    nino_id                INTEGER NOT NULL REFERENCES nino(id),
+    fecha_apertura         TEXT    NOT NULL,   -- formato AAAA-MM-DD
+    pct_reciente_apertura  REAL    NOT NULL,   -- faltas de los últimos días al abrir el caso
+    estado                 TEXT    NOT NULL DEFAULT 'abierto'
+                                   CHECK (estado IN ('abierto', 'cerrado')),
+    fecha_cierre           TEXT,
+    CHECK ((estado = 'abierto' AND fecha_cierre IS NULL)
+        OR (estado = 'cerrado' AND fecha_cierre IS NOT NULL))
+);
+
+-- Un niño no puede tener dos casos abiertos a la vez.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_caso_abierto_por_nino
+    ON caso(nino_id) WHERE estado = 'abierto';
+
+CREATE TABLE IF NOT EXISTS revision (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    caso_id       INTEGER NOT NULL REFERENCES caso(id),
+    fecha         TEXT    NOT NULL,   -- formato AAAA-MM-DD
+    pct_reciente  REAL    NOT NULL,   -- calculado con el historial hasta esta fecha
+    acciones      TEXT    NOT NULL,   -- lista JSON de acciones del catálogo
+    observacion   TEXT,
+    UNIQUE (caso_id, fecha)
+);
 """
 
-_TABLAS = ("jardin", "sala", "nino", "asistencia")
+_TABLAS = ("jardin", "sala", "nino", "asistencia", "caso", "revision")
 
 
 def conectar(ruta: Union[str, Path, None] = None) -> sqlite3.Connection:
@@ -70,6 +98,9 @@ def crear_esquema(conn: sqlite3.Connection) -> None:
 def reiniciar_esquema(conn: sqlite3.Connection) -> None:
     """Borra todo y vuelve a crear las tablas vacías."""
     conn.executescript(
+        # Primero las tablas que apuntan a nino, para no romper las claves foráneas.
+        "DROP TABLE IF EXISTS revision;"
+        "DROP TABLE IF EXISTS caso;"
         "DROP TABLE IF EXISTS asistencia;"
         "DROP TABLE IF EXISTS nino;"
         "DROP TABLE IF EXISTS sala;"
@@ -233,3 +264,112 @@ def asistencias_del_dia(
         (sala_id, fecha.isoformat()),
     ).fetchall()
     return {fila["nino_id"]: fila for fila in filas}
+
+
+def estados_de_nino(
+    conn: sqlite3.Connection, nino_id: int, hasta: Optional[date] = None
+) -> list[str]:
+    """Estados de un niño día por día (del más antiguo al más nuevo), hasta una fecha incluida."""
+    filas = conn.execute(
+        "SELECT estado FROM asistencia "
+        "WHERE nino_id = ? AND (? IS NULL OR fecha <= ?) ORDER BY fecha",
+        (nino_id, hasta and hasta.isoformat(), hasta and hasta.isoformat()),
+    ).fetchall()
+    return [fila["estado"] for fila in filas]
+
+
+def obtener_nino(conn: sqlite3.Connection, nino_id: int) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT n.id, n.codigo, s.id AS sala_id, s.nivel AS sala, "
+        "j.id AS jardin_id, j.nombre AS jardin "
+        "FROM nino n JOIN sala s ON s.id = n.sala_id JOIN jardin j ON j.id = s.jardin_id "
+        "WHERE n.id = ?",
+        (nino_id,),
+    ).fetchone()
+
+
+def ninos_con_jardin(
+    conn: sqlite3.Connection, jardin_id: Optional[int] = None
+) -> list[sqlite3.Row]:
+    """Todos los niños (o los de un jardín) con su jardín, ordenados por código."""
+    return conn.execute(
+        "SELECT n.id, n.codigo, s.nivel AS sala, j.id AS jardin_id, j.nombre AS jardin "
+        "FROM nino n JOIN sala s ON s.id = n.sala_id JOIN jardin j ON j.id = s.jardin_id "
+        "WHERE (? IS NULL OR j.id = ?) ORDER BY n.codigo",
+        (jardin_id, jardin_id),
+    ).fetchall()
+
+
+# --- Seguimiento de casos ------------------------------------------------------
+# Las validaciones (niño en rojo, fechas, acciones) están en app/seguimiento.py.
+
+_SELECT_CASO = (
+    "SELECT c.id, c.nino_id, c.fecha_apertura, c.pct_reciente_apertura, c.estado, "
+    "c.fecha_cierre, n.codigo, j.id AS jardin_id, j.nombre AS jardin "
+    "FROM caso c JOIN nino n ON n.id = c.nino_id "
+    "JOIN sala s ON s.id = n.sala_id JOIN jardin j ON j.id = s.jardin_id "
+)
+
+
+def insertar_caso(
+    conn: sqlite3.Connection, nino_id: int, fecha_apertura: date, pct_reciente_apertura: float
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO caso (nino_id, fecha_apertura, pct_reciente_apertura) VALUES (?, ?, ?)",
+        (nino_id, fecha_apertura.isoformat(), pct_reciente_apertura),
+    )
+    return cur.lastrowid
+
+
+def obtener_caso(conn: sqlite3.Connection, caso_id: int) -> Optional[sqlite3.Row]:
+    return conn.execute(_SELECT_CASO + "WHERE c.id = ?", (caso_id,)).fetchone()
+
+
+def caso_abierto_de_nino(conn: sqlite3.Connection, nino_id: int) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        _SELECT_CASO + "WHERE c.nino_id = ? AND c.estado = 'abierto'", (nino_id,)
+    ).fetchone()
+
+
+def listar_casos_abiertos(
+    conn: sqlite3.Connection, jardin_id: Optional[int] = None
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        _SELECT_CASO + "WHERE c.estado = 'abierto' AND (? IS NULL OR j.id = ?) "
+        "ORDER BY c.fecha_apertura, n.codigo",
+        (jardin_id, jardin_id),
+    ).fetchall()
+
+
+def cerrar_caso(conn: sqlite3.Connection, caso_id: int, fecha_cierre: date) -> None:
+    conn.execute(
+        "UPDATE caso SET estado = 'cerrado', fecha_cierre = ? WHERE id = ? AND estado = 'abierto'",
+        (fecha_cierre.isoformat(), caso_id),
+    )
+
+
+def insertar_revision(
+    conn: sqlite3.Connection,
+    caso_id: int,
+    fecha: date,
+    pct_reciente: float,
+    acciones: Iterable[str],
+    observacion: Optional[str] = None,
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO revision (caso_id, fecha, pct_reciente, acciones, observacion) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (caso_id, fecha.isoformat(), pct_reciente,
+         json.dumps(list(acciones), ensure_ascii=False), observacion),
+    )
+    return cur.lastrowid
+
+
+def revisiones_de_caso(conn: sqlite3.Connection, caso_id: int) -> list[dict]:
+    """Revisiones de un caso, de la más antigua a la más nueva (acciones como lista)."""
+    filas = conn.execute(
+        "SELECT id, caso_id, fecha, pct_reciente, acciones, observacion "
+        "FROM revision WHERE caso_id = ? ORDER BY fecha",
+        (caso_id,),
+    ).fetchall()
+    return [{**dict(fila), "acciones": json.loads(fila["acciones"])} for fila in filas]

@@ -16,8 +16,10 @@ Ejemplo con los datos de demostración: el jardín *Pequeños Pasos (ficticio)* 
 |---|---|---|
 | **Registro diario** | `/` | Elegir jardín, sala y fecha; marcar a cada niño presente o ausente (con motivo) y guardar. Muestra el semáforo de cada niño, que se actualiza al guardar. |
 | **Panel del jardín** | `/panel` | Lo que usa la directora para decidir a quién llamar o visitar esta semana: asistencia promedio y niños en rojo lado a lado, conteos por color y la lista de niños ordenada por prioridad (rojo → racha → amarillo → verde → sin datos), con filtros por sala, color y "solo con alerta". |
+| **Panel de la Subdirección** | `/subdireccion` | Todos los jardines juntos, para decidir en cuáles reforzar el apoyo antes de que termine el cuatrimestre: tabla con promedio, conteos por color, % en rojo, % en riesgo y fila de totales; **puesto por promedio** y **puesto por % en rojo** lado a lado, y la señal *"Promedio que oculta casos graves"*. Se puede ordenar por columna y filtrar por región. |
+| **Seguimiento de casos** | `/casos` | La vista del Comité de Asistencia (reunión mensual): niños en rojo sin caso (con "Abrir caso"), casos abiertos con su estado, y un formulario para registrar cada revisión con las acciones realizadas. |
 
-Todavía no hay login; los roles se agregarán más adelante.
+Todas las pantallas muestran el aviso de datos ficticios, el menú entre pantallas y la fecha de los datos ("Datos al"). Los colores y estados siempre llevan texto, no solo color. Todavía no hay login; los roles se agregarán más adelante.
 
 ## Semáforo
 
@@ -34,6 +36,37 @@ Alertas: **racha** (3 o más faltas seguidas hasta hoy), **riesgo amarillo**, **
 
 Los umbrales son una propuesta del equipo (supuesto [S]) y se cambian en un solo lugar: [app/config.py](app/config.py).
 
+## Seguimiento de casos
+
+Un niño en rojo es candidato a caso. El Comité abre el caso y registra una revisión cada mes con las acciones realizadas (del catálogo: llamado a la familia, visita al hogar, reunión con la familia, apoyo de traslado o transporte, derivación a red de apoyo).
+
+En cada revisión se guarda el **% de faltas de los últimos 20 días de clases**, calculado solo con la asistencia hasta la fecha de esa revisión (corregir días posteriores no cambia lo ya revisado). Luego:
+
+| Resultado de la revisión | Cuándo |
+|---|---|
+| **Mejora** | Las faltas recientes bajaron 5 puntos o más respecto de la revisión anterior (o de la apertura, si es la primera) |
+| **Sin mejora** | En cualquier otro caso |
+
+| Estado del caso | Cuándo |
+|---|---|
+| **Sugerir cierre** | El niño ya no está en rojo. Solo entonces aparece el botón "Cerrar caso" |
+| **Escalar** | 2 o más revisiones seguidas sin mejora (una mejora reinicia la cuenta) |
+| **En seguimiento** | En cualquier otro caso |
+
+Un niño no puede tener dos casos abiertos a la vez, y solo se abre un caso si está en rojo. Los casos no se borran. La observación de cada revisión es opcional y corta: **no se deben escribir nombres ni datos de salud o personales**, solo el código del niño (el sistema rechaza textos que parecen un RUT).
+
+## Supuestos del equipo [S]
+
+Todos están en [app/config.py](app/config.py):
+
+| Constante | Valor | Para qué |
+|---|---|---|
+| `UMBRAL_AMARILLO_PCT` / `UMBRAL_ROJO_PCT` | 10 / 20 | Colores del semáforo |
+| `MIN_DIAS_LECTIVOS` | 10 | Días mínimos antes de pintar el semáforo |
+| `FALTAS_SEGUIDAS_ALERTA` / `VENTANA_RECIENTE_DIAS` | 3 / 20 | Alertas de racha y de tendencia |
+| `UMBRAL_PROMEDIO_ALTO_PCT` / `MIN_ROJOS_ALERTA_JARDIN` | 90 / 3 | Señal "Promedio que oculta casos graves" (y la advertencia del panel del jardín, que aparece desde el primer niño en rojo) |
+| `MEJORA_MIN_PUNTOS` / `REVISIONES_SIN_MEJORA_ESCALA` | 5 / 2 | Mejora de un caso y cuándo se escala |
+
 ## Cómo ejecutarlo (Windows, PowerShell)
 
 Requisito: Python 3.10 o superior (probado con 3.13).
@@ -49,11 +82,19 @@ pip install -r requirements.txt
 # 3. Generar los datos ficticios (crea data\asistencia.db)
 python scripts\generar_datos.py
 
-# 4. Levantar el servidor
+# 4. Crear los casos de seguimiento de ejemplo
+python scripts\sembrar_casos.py
+
+# 5. Levantar el servidor
 uvicorn app.main:app --reload
 ```
 
-Luego abrir <http://127.0.0.1:8000> (registro diario) o <http://127.0.0.1:8000/panel> (panel del jardín).
+Luego abrir en el navegador:
+
+- <http://127.0.0.1:8000> — Registro diario
+- <http://127.0.0.1:8000/panel> — Panel del jardín
+- <http://127.0.0.1:8000/subdireccion> — Panel de la Subdirección
+- <http://127.0.0.1:8000/casos> — Seguimiento de casos
 
 Si PowerShell no deja ejecutar `Activate.ps1`, correr una vez:
 
@@ -73,9 +114,24 @@ python scripts\generar_datos.py --jardines 5 --ninos-por-jardin 20
 python scripts\resumen_datos.py          # semáforo de cada jardín en la terminal
 ```
 
-Volver a generar **borra** la base y la crea de nuevo (se pierde lo registrado a mano).
+Volver a generar **borra** la base y la crea de nuevo: se pierde lo registrado a mano, incluidos los casos. Después hay que volver a correr `sembrar_casos.py`.
 
-Con la semilla por defecto, los tres primeros jardines muestran situaciones distintas: *Rayito de Sol* (las ausencias bajan durante el año), *Semillitas* (suben) y *Pequeños Pasos* (buen promedio con 4 niños en rojo escondidos).
+Con la semilla por defecto, los tres primeros jardines muestran situaciones distintas: *Rayito de Sol* (las ausencias bajan durante el año), *Semillitas* (suben) y *Pequeños Pasos* (buen promedio con 4 niños en rojo escondidos). En la Subdirección, Pequeños Pasos queda **1º por asistencia promedio y 9º por % en rojo**: es el único jardín con la señal "Promedio que oculta casos graves".
+
+### Casos de ejemplo
+
+`sembrar_casos.py` usa los 4 niños en rojo de Pequeños Pasos y deja:
+
+- un caso con una revisión que **mejora**;
+- un caso con 2 revisiones **sin mejora** (estado *Escalar*);
+- un caso **recién abierto**, sin revisiones;
+- un niño en rojo **sin caso**, para probar el botón "Abrir caso".
+
+Las fechas no están escritas a mano: el script las busca en los datos generados (revisiones separadas por cerca de un mes, en meses anteriores) para que den cada resultado. Si ya hay casos guardados no hace nada, para no borrar los creados desde la pantalla:
+
+```powershell
+python scripts\sembrar_casos.py --reiniciar   # borra TODOS los casos y crea los ejemplos de nuevo
+```
 
 ## Pruebas
 
@@ -92,14 +148,17 @@ app/
   config.py        Umbrales, motivos de ausencia y textos (lo único que se ajusta)
   rules.py         Cálculos del semáforo y alertas (no sabe de base de datos ni pantallas)
   models.py        Fichas de datos y reglas de calidad (p. ej. un niño presente no lleva motivo)
+  seguimiento.py   Regla de mejora y estado de los casos, y abrir/revisar/cerrar con sus validaciones
   db.py            SQLite: tablas, guardado y consultas
   main.py          Rutas web (FastAPI)
-  templates/       Pantallas (Jinja2): base.html, registro.html, panel.html
+  templates/       Pantallas (Jinja2): base.html (aviso y menú), registro.html, panel.html,
+                   subdireccion.html, casos.html
   static/          estilos.css
 scripts/
   generar_datos.py Genera los datos ficticios
+  sembrar_casos.py Crea los casos de seguimiento de ejemplo
   resumen_datos.py Resumen por jardín en la terminal
-tests/             Pruebas (unittest)
+tests/             Pruebas (unittest); base_demo.py prepara la base de demostración
 docs/reglas.md     Reglas del semáforo explicadas sin código
 data/              Aquí se crea asistencia.db (no se sube a git)
 ```

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block titulo %}Seguimiento de casos{% endblock %}
+{% block h1 %}Seguimiento de casos{% endblock %}
+
+{% block contenido %}
+    <form class="selector" method="get" action="/casos">
+      <label>Jardín
+        <select name="jardin_id" onchange="this.form.submit()">
+          <option value="">Todos los jardines</option>
+          {% for j in jardines %}
+          <option value="{{ j.id }}" {% if j.id == jardin_elegido %}selected{% endif %}>{{ j.nombre }} · {{ j.comuna }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="secundario">Ver</button>
+      <p class="datos-al">Datos al: <strong>{{ datos_al }}</strong></p>
+    </form>
+
+    {% for a in avisos %}<div class="mensaje error" role="status">{{ a }}</div>{% endfor %}
+    {% if confirmacion %}<div class="mensaje ok" role="status">{{ confirmacion }}</div>{% endif %}
+    {% if error %}
+    <div class="mensaje error" role="alert"><p><strong>No se guardó.</strong> {{ error }}</p></div>
+    {% endif %}
+
+    <p class="nota">
+      Cómo se lee: en cada revisión se comparan las faltas de los últimos {{ ventana }} días de clases
+      con la revisión anterior (o con la apertura). Si bajaron {{ mejora_min }} puntos o más, es
+      <strong>Mejora</strong>. Con {{ revisiones_escala }} revisiones seguidas sin mejora, el caso queda en
+      <strong>Escalar</strong>. Si el niño ya no está en rojo, se sugiere cerrar el caso.
+    </p>
+
+    <section aria-labelledby="titulo-casos">
+      <h2 id="titulo-casos">Casos abiertos ({{ casos|length }})</h2>
+      {% if casos %}
+      <div class="tabla-contenedor">
+        <table class="tabla-casos">
+          <thead>
+            <tr>
+              <th scope="col">Niño</th>
+              <th scope="col">Jardín</th>
+              <th scope="col">Apertura</th>
+              <th scope="col">Revisiones</th>
+              <th scope="col">Última revisión</th>
+              <th scope="col">Faltas recientes (apertura → hoy)</th>
+              <th scope="col">Semáforo hoy</th>
+              <th scope="col">Estado</th>
+              <th scope="col"><span class="oculto">Acciones</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in casos %}
+            <tr data-caso="{{ c.caso.id }}" data-codigo="{{ c.caso.codigo }}" data-estado="{{ c.estado }}">
+              <th scope="row">{{ c.caso.codigo }}</th>
+              <td>{{ c.caso.jardin }}</td>
+              <td>{{ c.apertura_txt }}</td>
+              <td class="numero">{{ c.revisiones|length }}</td>
+              <td><span class="resultado {{ c.ultimo_resultado or 'ninguno' }}">{{ c.etiqueta_resultado }}</span></td>
+              <td class="numero">{{ c.pct_apertura }} → {{ c.pct_reciente }}</td>
+              <td><span class="semaforo {{ c.nivel_actual }}">{{ c.etiqueta_nivel }}</span> <span class="detalle">{{ c.pct_actual }} del año</span></td>
+              <td><span class="estado-caso {{ c.estado }}">{{ c.etiqueta_estado }}</span></td>
+              <td class="acciones-fila">
+                <a href="#caso-{{ c.caso.id }}">Registrar revisión</a>
+                {% if c.estado == SUGERIR_CIERRE %}
+                <form method="post" action="/casos/{{ c.caso.id }}/cerrar">
+                  <input type="hidden" name="jardin_id" value="{{ jardin_elegido or '' }}">
+                  <button type="submit">Cerrar caso</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="vacio">No hay casos abiertos{% if jardin_elegido %} en este jardín{% endif %}.</p>
+      {% endif %}
+    </section>
+
+    {% if casos %}
+    <section aria-labelledby="titulo-revisiones">
+      <h2 id="titulo-revisiones">Revisiones por caso</h2>
+      {% for c in casos %}
+      {% set con_error = error_caso_id == c.caso.id %}
+      <details class="caso" id="caso-{{ c.caso.id }}" {% if con_error %}open{% endif %}>
+        <summary>
+          <strong>{{ c.caso.codigo }}</strong> · {{ c.caso.jardin }} ·
+          <span class="estado-caso {{ c.estado }}">{{ c.etiqueta_estado }}</span>
+          <span class="detalle-inline">{{ c.revisiones|length }} {{ 'revisión' if c.revisiones|length == 1 else 'revisiones' }}</span>
+        </summary>
+
+        <ol class="historial">
+          <li><span class="fecha">{{ c.apertura_txt }}</span> Apertura del caso · faltas recientes {{ c.pct_apertura }}</li>
+          {% for r in c.revisiones %}
+          <li>
+            <span class="fecha">{{ r.fecha_txt }}</span> Revisión · faltas recientes {{ r.pct }}
+            <span class="resultado {{ r.resultado }}">{{ r.etiqueta }}</span>
+            <br><span class="detalle-inline">Acciones: {{ r.acciones|join(', ') }}</span>
+            {% if r.observacion %}<br><span class="detalle-inline">Observación: {{ r.observacion }}</span>{% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+
+        <form class="form-revision" method="post" action="/casos/{{ c.caso.id }}/revision">
+          <input type="hidden" name="jardin_id" value="{{ jardin_elegido or '' }}">
+          <label>Fecha de la revisión
+            <input type="date" name="fecha" max="{{ hoy.isoformat() }}"
+                   value="{{ valores.fecha if con_error and valores.fecha else hoy.isoformat() }}" required>
+          </label>
+          <fieldset>
+            <legend>Acciones realizadas (marca una o más)</legend>
+            {% for a in acciones %}
+            <label class="casilla"><input type="checkbox" name="acciones" value="{{ a }}"
+              {% if con_error and a in valores.acciones %}checked{% endif %}> {{ a }}</label>
+            {% endfor %}
+          </fieldset>
+          <label>Observación (opcional)
+            <textarea name="observacion" rows="2" maxlength="{{ max_observacion }}">{{ valores.observacion if con_error else '' }}</textarea>
+          </label>
+          <p class="aviso-privacidad" role="note">⚠ No escribas nombres ni datos de salud o personales: usa solo el código del niño.</p>
+          <button type="submit">Guardar revisión</button>
+        </form>
+      </details>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    <section aria-labelledby="titulo-candidatos">
+      <h2 id="titulo-candidatos">Niños en rojo sin caso ({{ candidatos|length }})</h2>
+      {% if candidatos %}
+      <div class="tabla-contenedor">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Niño</th>
+              <th scope="col">Jardín</th>
+              <th scope="col">Sala</th>
+              <th scope="col">Color</th>
+              <th scope="col">% de faltas del año</th>
+              <th scope="col">Faltas últimos {{ ventana }} días</th>
+              <th scope="col"><span class="oculto">Acción</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for n in candidatos %}
+            <tr data-candidato="{{ n.codigo }}">
+              <th scope="row">{{ n.codigo }}</th>
+              <td>{{ n.jardin }}</td>
+              <td>{{ n.sala }}</td>
+              <td><span class="semaforo rojo">Rojo</span></td>
+              <td class="numero">{{ n.pct }}</td>
+              <td class="numero">{{ n.pct_reciente }}</td>
+              <td>
+                <form method="post" action="/casos/abrir">
+                  <input type="hidden" name="nino_id" value="{{ n.id }}">
+                  <input type="hidden" name="jardin_id" value="{{ jardin_elegido or '' }}">
+                  <button type="submit" class="secundario">Abrir caso</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="vacio">No hay niños en rojo sin caso{% if jardin_elegido %} en este jardín{% endif %}.</p>
+      {% endif %}
+    </section>
+{% endblock %}

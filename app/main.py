@@ -4,6 +4,7 @@ Pantallas:
 - "/"       Registro diario de asistencia de una sala.
 - "/panel"  Panel del jardín: a quién actuar esta semana.
 - "/subdireccion"  Panel de la Subdirección: todos los jardines juntos.
+- "/casos"  Seguimiento de casos del Comité de Asistencia.
 
 Todavía no hay login: los roles se agregan después.
 
@@ -28,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import config as cfg
 from app import db
+from app import seguimiento as seg
 from app.models import Asistencia
 from app.rules import (
     ALERTA_RACHA,
@@ -622,3 +624,171 @@ def subdireccion(
         "min_rojos": cfg.MIN_ROJOS_ALERTA_JARDIN,
     }
     return plantillas.TemplateResponse(request, "subdireccion.html", contexto)
+
+
+# --- Pantalla 4: Seguimiento de casos ---------------------------------------------
+
+# Orden de la tabla de casos: primero lo que pide una decisión del Comité.
+PRIORIDAD_ESTADO = {seg.ESCALAR: 0, seg.SUGERIR_CIERRE: 1, seg.EN_SEGUIMIENTO: 2}
+
+CONFIRMACIONES = {
+    "abierto": "Caso abierto para {codigo}.",
+    "revision": "Revisión registrada para {codigo}.",
+    "cerrado": "Caso de {codigo} cerrado.",
+}
+
+
+def _volver_a_casos(jardin_id: Optional[int], ok: str, codigo: str) -> RedirectResponse:
+    params = {"ok": ok, "codigo": codigo}
+    if jardin_id is not None:
+        params["jardin_id"] = jardin_id
+    return RedirectResponse("/casos?" + urlencode(params), status_code=303)
+
+
+def _pantalla_casos(
+    request: Request,
+    conn: sqlite3.Connection,
+    jardin_id: Optional[str] = None,
+    confirmacion: Optional[str] = None,
+    error: Optional[str] = None,
+    error_caso_id: Optional[int] = None,
+    valores: Optional[dict] = None,
+    status_code: int = 200,
+):
+    jardines = db.listar_jardines(conn)
+    avisos = []
+    jardin_elegido = _leer_id(jardin_id)
+    if jardin_id and jardin_elegido not in [j["id"] for j in jardines]:
+        avisos.append("El jardín elegido no existe: se muestran todos los jardines.")
+        jardin_elegido = None
+
+    # Casos abiertos, con su estado calculado por app.seguimiento.
+    casos = [seg.resumen_caso(conn, c) for c in db.listar_casos_abiertos(conn, jardin_elegido)]
+    con_caso = {c["caso"]["nino_id"] for c in casos}
+    casos.sort(key=lambda c: (PRIORIDAD_ESTADO[c["estado"]], c["caso"]["fecha_apertura"], c["caso"]["codigo"]))
+    for c in casos:
+        c["etiqueta_estado"] = seg.ETIQUETA_ESTADO[c["estado"]]
+        c["etiqueta_resultado"] = seg.ETIQUETA_RESULTADO[c["ultimo_resultado"]]
+        c["etiqueta_nivel"] = ETIQUETA_NIVEL[c["nivel_actual"]]
+        c["pct_apertura"] = _formato_pct(c["caso"]["pct_reciente_apertura"])
+        c["pct_reciente"] = _formato_pct(c["pct_reciente_actual"])
+        c["pct_actual"] = _formato_pct(c["pct_actual"])
+        for r in c["revisiones"]:
+            r["etiqueta"] = seg.ETIQUETA_RESULTADO[r["resultado"]]
+            r["pct"] = _formato_pct(r["pct_reciente"])
+            r["fecha_txt"] = date.fromisoformat(r["fecha"]).strftime("%d-%m-%Y")
+        c["apertura_txt"] = date.fromisoformat(c["caso"]["fecha_apertura"]).strftime("%d-%m-%Y")
+
+    # Niños en rojo sin caso abierto (con todo su historial).
+    historial = db.estados_por_nino(conn, jardin_elegido)
+    candidatos = []
+    for nino in db.ninos_con_jardin(conn, jardin_elegido):
+        if nino["id"] in con_caso:
+            continue
+        r = evaluar_nino(historial.get(nino["id"], []))
+        if r.nivel == cfg.ROJO:
+            candidatos.append(
+                {
+                    "id": nino["id"],
+                    "codigo": nino["codigo"],
+                    "jardin": nino["jardin"],
+                    "sala": nino["sala"],
+                    "pct": _formato_pct(r.pct_inasistencia),
+                    "pct_reciente": _formato_pct(r.pct_reciente),
+                    "orden": -r.pct_inasistencia,
+                }
+            )
+    candidatos.sort(key=lambda n: (n["orden"], n["codigo"]))
+
+    ultima = db.ultima_fecha_con_datos(conn)
+    contexto = {
+        **_contexto_base("casos", jardin_elegido),
+        "jardines": jardines,
+        "jardin_elegido": jardin_elegido,
+        "datos_al": ultima.strftime("%d-%m-%Y") if ultima else "sin datos",
+        "hoy": date.today(),
+        "casos": casos,
+        "candidatos": candidatos,
+        "acciones": cfg.ACCIONES_SEGUIMIENTO,
+        "max_observacion": seg.MAX_OBSERVACION,
+        "ventana": cfg.VENTANA_RECIENTE_DIAS,
+        "mejora_min": cfg.MEJORA_MIN_PUNTOS,
+        "revisiones_escala": cfg.REVISIONES_SIN_MEJORA_ESCALA,
+        "confirmacion": confirmacion,
+        "error": error,
+        "error_caso_id": error_caso_id,
+        "valores": valores or {},
+        "avisos": avisos,
+        "SUGERIR_CIERRE": seg.SUGERIR_CIERRE,
+    }
+    return plantillas.TemplateResponse(request, "casos.html", contexto, status_code=status_code)
+
+
+@app.get("/casos", response_class=HTMLResponse)
+def casos(
+    request: Request,
+    jardin_id: Optional[str] = None,
+    ok: Optional[str] = None,
+    codigo: Optional[str] = None,
+    ruta: Path = Depends(ruta_bd),
+):
+    confirmacion = None
+    if ok in CONFIRMACIONES and codigo:
+        confirmacion = CONFIRMACIONES[ok].format(codigo=codigo)
+    with closing(_abrir(ruta)) as conn:
+        return _pantalla_casos(request, conn, jardin_id, confirmacion=confirmacion)
+
+
+@app.post("/casos/abrir", response_class=HTMLResponse)
+async def abrir_caso(request: Request, ruta: Path = Depends(ruta_bd)):
+    form = await request.form()
+    jardin_id = form.get("jardin_id") or None
+    nino_id = _leer_id(form.get("nino_id"))
+    with closing(_abrir(ruta)) as conn:
+        try:
+            if nino_id is None:
+                raise seg.ErrorSeguimiento("Falta indicar el niño.")
+            with conn:
+                seg.abrir_caso(conn, nino_id, date.today())
+        except seg.ErrorSeguimiento as error:
+            return _pantalla_casos(request, conn, jardin_id, error=str(error), status_code=400)
+        codigo = db.obtener_nino(conn, nino_id)["codigo"]
+    return _volver_a_casos(_leer_id(jardin_id), "abierto", codigo)
+
+
+@app.post("/casos/{caso_id}/revision", response_class=HTMLResponse)
+async def registrar_revision(caso_id: int, request: Request, ruta: Path = Depends(ruta_bd)):
+    form = await request.form()
+    jardin_id = form.get("jardin_id") or None
+    acciones = [a for a in form.getlist("acciones") if isinstance(a, str)]
+    observacion = form.get("observacion") or ""
+    texto_fecha = form.get("fecha") or ""
+    with closing(_abrir(ruta)) as conn:
+        try:
+            fecha = _leer_fecha(texto_fecha)
+            if fecha is None:
+                raise seg.ErrorSeguimiento("La fecha de la revisión no es válida.")
+            with conn:
+                seg.registrar_revision(conn, caso_id, fecha, acciones, observacion)
+        except seg.ErrorSeguimiento as error:
+            valores = {"fecha": texto_fecha, "acciones": acciones, "observacion": observacion}
+            return _pantalla_casos(
+                request, conn, jardin_id, error=str(error),
+                error_caso_id=caso_id, valores=valores, status_code=400,
+            )
+        codigo = db.obtener_caso(conn, caso_id)["codigo"]
+    return _volver_a_casos(_leer_id(jardin_id), "revision", codigo)
+
+
+@app.post("/casos/{caso_id}/cerrar", response_class=HTMLResponse)
+async def cerrar_caso(caso_id: int, request: Request, ruta: Path = Depends(ruta_bd)):
+    form = await request.form()
+    jardin_id = form.get("jardin_id") or None
+    with closing(_abrir(ruta)) as conn:
+        try:
+            with conn:
+                seg.cerrar_caso(conn, caso_id)
+        except seg.ErrorSeguimiento as error:
+            return _pantalla_casos(request, conn, jardin_id, error=str(error), status_code=400)
+        codigo = db.obtener_caso(conn, caso_id)["codigo"]
+    return _volver_a_casos(_leer_id(jardin_id), "cerrado", codigo)

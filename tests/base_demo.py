@@ -32,3 +32,11 @@ def base_demo() -> tuple[Path, sqlite3.Connection]:
         with closing(db.conectar(_ruta)) as archivo:
             _memoria.backup(archivo)
     return _ruta, _memoria
+
+
+def copia_demo(destino: Path) -> Path:
+    """Copia la base de demostración a otro archivo, para pruebas que sí la modifican."""
+    _, memoria = base_demo()
+    with closing(db.conectar(destino)) as archivo:
+        memoria.backup(archivo)
+    return destino

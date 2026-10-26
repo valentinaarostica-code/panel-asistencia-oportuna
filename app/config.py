@@ -58,5 +58,19 @@ VENTANA_RECIENTE_DIAS = 20   # para detectar niños que empeoran hace poco
 UMBRAL_PROMEDIO_ALTO_PCT = 90   # desde 90% de asistencia promedio, "se ve bien"
 MIN_ROJOS_ALERTA_JARDIN = 3     # y al menos 3 niños en rojo
 
+# --- Seguimiento de casos (Comité de Asistencia) -----------------------------
+# Acciones que el Comité puede registrar en cada revisión mensual.
+ACCIONES_SEGUIMIENTO = (
+    "Llamado a la familia",
+    "Visita al hogar",
+    "Reunión con la familia",
+    "Apoyo de traslado o transporte",
+    "Derivación a red de apoyo",
+)
+
+# Supuestos del equipo [S]:
+MEJORA_MIN_PUNTOS = 5              # una revisión "mejora" si las faltas recientes bajan 5 puntos o más
+REVISIONES_SIN_MEJORA_ESCALA = 2   # 2 revisiones seguidas sin mejora: el caso se escala
+
 # --- Estructura de los jardines (para los datos ficticios) --------------------
 NIVELES_SALA = ("Sala cuna", "Medio menor", "Medio mayor")
